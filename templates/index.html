@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>معرض السيارات + بنك التمويل</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header><div><h1>🚘 معرض السيارات + بنك التمويل</h1><p>Supabase + Bank API + JSON</p></div><button onclick="checkBank()">فحص البنك</button></header>
+<main>
+<section class="panel"><div class="section-head"><h2>السيارات المتاحة</h2><button onclick="loadData()">تحديث البيانات</button></div><div id="cars" class="grid"><div class="message">جاري تحميل السيارات...</div></div></section>
+<section class="panel">
+<h2>طلب تمويل سيارة</h2>
+<form id="financeForm">
+<label>العميل</label><select id="customer_id" required disabled><option value="">جاري التحميل...</option></select>
+<label>السيارة</label><select id="car_id" required disabled><option value="">جاري التحميل...</option></select>
+<label>مبلغ التمويل</label><input id="amount" type="number" min="1" step="0.01" placeholder="مثال: 20000" required>
+<label>عدد الأشهر</label><input id="months" type="number" min="1" max="120" value="48" required>
+<button id="submitBtn" type="submit" disabled>إرسال للبنك</button>
+</form><div id="result"></div>
+</section>
+<section class="panel"><div class="section-head"><h2>طلبات التمويل السابقة</h2><button onclick="loadRequests()">تحديث</button></div><div id="requests"><div class="message">جاري التحميل...</div></div></section>
+</main>
+<script>
+async function api(url, options){
+  try { const r=await fetch(url,options); let data={}; try{data=await r.json()}catch(e){} return {status:r.status,data}; }
+  catch(e){ return {status:0,data:{success:false,message:'تعذر الاتصال بالخادم: '+e.message}}; }
+}
+function showError(msg){document.getElementById('result').innerHTML=`<div class="error">${msg}</div>`;}
+async function loadData(){
+  const [cars,customers]=await Promise.all([api('/api/cars'),api('/api/customers')]);
+  if(!cars.data.success){document.getElementById('cars').innerHTML=`<div class="error">${cars.data.message||'تعذر تحميل السيارات'}</div>`;}
+  else if(!cars.data.cars.length){document.getElementById('cars').innerHTML='<div class="error">لا توجد سيارات. أعد تشغيل المشروع مرة واحدة ليتم إنشاء البيانات التجريبية تلقائيًا.</div>';}
+  else {
+    document.getElementById('cars').innerHTML=cars.data.cars.map(c=>`<article class="card"><h3>${c.brand} ${c.model}</h3><p>السنة: ${c.year}</p><p>السعر: $${Number(c.price).toLocaleString()}</p><p>اللون: ${c.color}</p><b>${c.status}</b></article>`).join('');
+  }
+  const cs=customers.data.customers||[]; const vs=cars.data.cars||[];
+  document.getElementById('customer_id').innerHTML=cs.map(c=>`<option value="${c.id}">${c.name} - ${c.phone}</option>`).join('');
+  document.getElementById('car_id').innerHTML=vs.map(c=>`<option value="${c.id}" data-price="${c.price}">${c.brand} ${c.model} ${c.year} - $${Number(c.price).toLocaleString()}</option>`).join('');
+  const ready=cs.length>0&&vs.length>0;
+  document.getElementById('customer_id').disabled=!ready; document.getElementById('car_id').disabled=!ready; document.getElementById('submitBtn').disabled=!ready;
+  if(ready){ document.getElementById('amount').value=vs[0].price; document.getElementById('car_id').onchange=()=>{const o=document.querySelector('#car_id option:checked');document.getElementById('amount').value=o?.dataset.price||''}; }
+  loadRequests();
+}
+async function checkBank(){const r=await api('/api/bank-health');document.getElementById('result').innerHTML=`<div class="${r.data.success?'success':'error'}">${r.data.message||r.data.status||'Bank API response'}</div>`;}
+document.getElementById('financeForm').addEventListener('submit',async e=>{e.preventDefault();
+  const payload={customer_id:Number(customer_id.value),car_id:Number(car_id.value),amount:Number(amount.value),months:Number(months.value)};
+  if(!payload.customer_id||!payload.car_id||payload.amount<=0||payload.months<=0){showError('يرجى اختيار العميل والسيارة وإدخال مبلغ وعدد أشهر صحيحين.');return;}
+  document.getElementById('submitBtn').disabled=true; document.getElementById('submitBtn').textContent='جاري إرسال الطلب...';
+  const r=await api('/api/finance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const bank=r.data.bank_response||{};
+  document.getElementById('result').innerHTML=`<div class="${r.data.success?'success':'error'}"><strong>${r.data.message||'تم استلام النتيجة'}</strong><pre>${JSON.stringify(bank,null,2)}</pre></div>`;
+  document.getElementById('submitBtn').disabled=false; document.getElementById('submitBtn').textContent='إرسال للبنك'; loadRequests();
+});
+async function loadRequests(){const r=await api('/api/financing-requests');const rows=r.data.requests||[];document.getElementById('requests').innerHTML=rows.length?`<table><thead><tr><th>#</th><th>العميل</th><th>السيارة</th><th>المبلغ</th><th>الأشهر</th><th>الحالة</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${x.id}</td><td>${x.customer_name}</td><td>${x.car_name}</td><td>$${Number(x.amount).toLocaleString()}</td><td>${x.months}</td><td>${x.status}</td></tr>`).join('')}</tbody></table>`:'<div class="message">لا توجد طلبات تمويل حتى الآن.</div>';}
+loadData();
+</script></body></html>
